@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class ConfigStore:
@@ -13,13 +13,23 @@ class ConfigStore:
         self.base_dir = base_dir
         self.config_dir = base_dir / "config"
 
-    def read_json(self, filename: str, default: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    def read_json(
+        self,
+        filename: str,
+        default: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+
         path = self.config_dir / filename
+
         if not path.exists():
             return default or {}
-        return json.loads(path.read_text(encoding="utf-8"))
+
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
 
     def write_json(self, filename: str, data: Dict[str, Any]) -> None:
         path = self.config_dir / filename
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)

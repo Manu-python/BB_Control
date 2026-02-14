@@ -100,7 +100,11 @@ class SerialWorker(QThread):
         """
         Stops worker loop and safely closes serial connection.
         """
+        if not self.running:
+            return
+
         self.running = False
+
 
         if self.ser:
             try:

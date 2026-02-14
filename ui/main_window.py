@@ -90,10 +90,11 @@ class MainWindow(QMainWindow):
         self.worker_thread.start()
 
     def stop_connection(self):
-        if self.worker_thread:
+        if self.worker_thread and self.worker_thread.isRunning():
             self.worker_thread.stop_serial()
             self.worker_thread.wait()
-            self.worker_thread = None
+
+        self.worker_thread = None
         self.keep_alive_timer.stop()
 
     def handle_connection_status(self, connected, message):
@@ -105,6 +106,7 @@ class MainWindow(QMainWindow):
             self.keep_alive_timer.start()
         else:
             self.keep_alive_timer.stop()
+            self.worker_thread = None
 
     def send_command(self, command_code: str):
         if self.worker_thread:
