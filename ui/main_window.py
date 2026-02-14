@@ -1,7 +1,15 @@
+from pathlib import Path
+
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget
+from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtWidgets import QApplication
+
 from core.serial_worker import SerialWorker
-from core.keymap import KeyMap
 from core.logger import AppLogger
+from core.config_store import ConfigStore
+from core.command_registry import CommandRegistry
+from core.keymap import KeyMap
+
 from ui.control_tab import ControlTab
 from ui.settings_tab import SettingsTab
 from ui.styles import DARK_STYLE
@@ -9,23 +17,45 @@ from utils.port_scanner import get_available_ports
 
 
 class MainWindow(QMainWindow):
+    """
+    Single responsibility:
+    App orchestration:
+    - load config
+    - create tabs
+    - wire signals
+    - manage SerialWorker lifecycle
+    """
 
     def __init__(self):
         super().__init__()
-
         self.setWindowTitle("BB Control")
         self.setGeometry(100, 100, 800, 600)
         self.setStyleSheet(DARK_STYLE)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+        # config store
+        self.base_dir = Path(__file__).resolve().parents[1]  # project root
+        self.store = ConfigStore(self.base_dir)
+
+        # load configs
+        commands_dict = self.store.read_json("commands.json", default={})
+        layout_dict = self.store.read_json("ui_layout.json", default={})
+        keymap_dict = self.store.read_json("keymap.json", default={})
+
+        self.registry = CommandRegistry(commands_dict)
+        self.keymap = KeyMap(keymap_dict)
+
+        self.layout_cfg = layout_dict
 
         self.worker_thread = None
-        self.keymap = KeyMap()
+
+        # keep-alive timer (configurable later if you want)
+        self.keep_alive_timer = QTimer(self)
+        self.keep_alive_timer.setInterval(500)
+        self.keep_alive_timer.timeout.connect(lambda: self.send_command("PING"))
 
         self.init_ui()
         self.refresh_ports()
-
-    # -------------------------------------------------
-    # UI Setup
-    # -------------------------------------------------
 
     def init_ui(self):
         central_widget = QWidget()
@@ -35,14 +65,13 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         layout.addWidget(self.tab_widget)
 
-        # Tabs
-        self.control_tab = ControlTab(self.keymap)
-        self.settings_tab = SettingsTab(self.keymap)
+        self.control_tab = ControlTab(self.keymap, self.registry, self.layout_cfg)
+        self.settings_tab = SettingsTab(self.keymap, self.registry)
 
         self.tab_widget.addTab(self.control_tab, "Control")
         self.tab_widget.addTab(self.settings_tab, "Settings")
 
-        # Signal wiring
+        # UI -> orchestration
         self.control_tab.command_requested.connect(self.send_command)
 
         self.settings_tab.connect_requested.connect(self.start_connection)
@@ -50,9 +79,9 @@ class MainWindow(QMainWindow):
         self.settings_tab.refresh_requested.connect(self.refresh_ports)
         self.settings_tab.key_updated.connect(self.handle_key_update)
 
-    # -------------------------------------------------
-    # Serial Logic
-    # -------------------------------------------------
+    def refresh_ports(self):
+        ports = get_available_ports()
+        self.settings_tab.set_ports(ports)
 
     def start_connection(self, port, baud):
         self.worker_thread = SerialWorker(port, baud)
@@ -65,45 +94,61 @@ class MainWindow(QMainWindow):
             self.worker_thread.stop_serial()
             self.worker_thread.wait()
             self.worker_thread = None
-
-    def send_command(self, command):
-        if self.worker_thread:
-            self.worker_thread.send_data(command)
-
-    # -------------------------------------------------
-    # Port Handling
-    # -------------------------------------------------
-
-    def refresh_ports(self):
-        ports = get_available_ports()
-        self.settings_tab.set_ports(ports)
-
-    # -------------------------------------------------
-    # Key Mapping
-    # -------------------------------------------------
-
-    def handle_key_update(self, command, new_key):
-        try:
-            self.keymap.update_key(command, new_key)
-        except ValueError:
-            pass
-
-    # -------------------------------------------------
-    # Logging
-    # -------------------------------------------------
-
-    def log_message(self, message):
-        html = AppLogger.format(message)
-        self.settings_tab.log_message(html)
-
-        if message.startswith("TX"):
-            self.control_tab.log_tx(html)
-
-    # -------------------------------------------------
-    # UI Updates
-    # -------------------------------------------------
+        self.keep_alive_timer.stop()
 
     def handle_connection_status(self, connected, message):
         self.settings_tab.set_connection_state(connected)
         self.control_tab.enable_buttons(connected)
-        self.log_message(message)
+        self.log_message(message, "success" if connected else "error")
+
+        if connected:
+            self.keep_alive_timer.start()
+        else:
+            self.keep_alive_timer.stop()
+
+    def send_command(self, command_code: str):
+        if self.worker_thread:
+            self.worker_thread.send_data(command_code)
+        else:
+            self.log_message(f"Cannot send '{command_code}'. Not connected.", "error")
+
+    def handle_key_update(self, command, new_key):
+        try:
+            self.keymap.update_key(command, new_key)
+        except ValueError as e:
+            # revert UI field
+            self.settings_tab.set_key_text(command, self.keymap.get_key(command))
+            self.log_message(str(e), "error")
+            return
+
+        # save to config/keymap.json
+        self.store.write_json("keymap.json", self.keymap.get_all())
+
+        # refresh button labels so Control tab updates the "(key)"
+        self.control_tab.refresh_button_labels()
+        self.log_message(f"Key updated: {command} -> {new_key}", "success")
+
+    def log_message(self, message: str, message_type: str = "info"):
+        html = AppLogger.format(message, message_type)
+        self.settings_tab.log_message(html)
+        if message.startswith("TX"):
+            self.control_tab.log_tx(html)
+
+    def keyPressEvent(self, event):
+        # block if typing in a QLineEdit
+        focus_widget = QApplication.focusWidget()
+        from PyQt5.QtWidgets import QLineEdit
+        if isinstance(focus_widget, QLineEdit):
+            super().keyPressEvent(event)
+            return
+
+        if self.worker_thread:
+            key_char = event.text().upper()
+            cmd = self.keymap.get_command_from_key(key_char)
+            if cmd:
+                self.send_command(cmd)
+        super().keyPressEvent(event)
+
+    def closeEvent(self, event):
+        self.stop_connection()
+        event.accept()

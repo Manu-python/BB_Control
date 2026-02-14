@@ -1,0 +1,23 @@
+{
+  "A1":  { "label": "Forward",        "color": "#418DF1" },
+  "A2":  { "label": "Backward",       "color": "#418DF1" },
+  "A0":  { "label": "Stop",           "color": "#E62626" },
+
+  "A4":  { "label": "Left",           "color": "#418DF1" },
+  "A3":  { "label": "Right",          "color": "#418DF1" },
+
+  "A5":  { "label": "Top Left",       "color": "#418DF1" },
+  "A6":  { "label": "Top Right",      "color": "#418DF1" },
+  "A7":  { "label": "Bottom Left",    "color": "#418DF1" },
+  "A8":  { "label": "Bottom Right",   "color": "#418DF1" },
+
+  "A9":  { "label": "Turn Right",     "color": "#418DF1" },
+  "A10": { "label": "Turn Left",      "color": "#418DF1" },
+
+  "A11": { "label": "Open Gripper",   "color": "#418DF1" },
+  "A12": { "label": "Close Gripper",  "color": "#418DF1" },
+  "A13": { "label": "Move Arm",       "color": "#418DF1" },
+
+  "PING": { "label": "Keep Alive",    "color": "#505050", "hidden": true },
+  "INIT_CHECK": { "label": "Init",    "color": "#505050", "hidden": true }
+}
