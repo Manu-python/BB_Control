@@ -96,6 +96,7 @@ class SettingsTab(QWidget):
         self.connect_button.setStyleSheet("background-color: #38761D; color: white;")
 
     def _handle_connect_button(self):
+        print("CONNECT BUTTON CLICKED", self.connected)
         if not self.connected:
             port = self.port_combo.currentData()
             if not port:
